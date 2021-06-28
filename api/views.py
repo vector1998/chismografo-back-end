@@ -1,4 +1,3 @@
-from rest_framework import generics
 from .models import Usuario, Pregunta, Respuesta
 from .serializers import UsuarioSerializer, PreguntaSerializer, RespuestaSerializer
 
@@ -6,12 +5,9 @@ from rest_framework.response import Response
 from rest_framework import status
 from rest_framework.decorators import api_view
 
-from django.core.mail import EmailMessage
-from django.template.loader import render_to_string
+import smtplib
 
 from django.http import JsonResponse
-
-from api import serializers
 
 #operaciones para usuarios
 @api_view(["POST"])
@@ -40,22 +36,60 @@ def usuario_eliminar(request , usuario_id):
        return Response({"detail": "DELETED ELEMENT"},content_type="application/json", status=status.HTTP_200_OK)
     return Response({"detail": "NOT FOUND ELEMENT"},content_type="application/json", status=status.HTTP_400_BAD_REQUEST)
 
-@api_view(["GET"])
-def usuario_enviar_email(request , email):
-    body = render_to_string("email_content.html",{
-        "name" : "victor",
-        "message" : "hola como estas",
-        "email" : "victoralejandromartinezmedina@gmail.com"
-    })
-    email_message = EmailMessage(
-        subject="Respuestas",
-        body=body,
-        from_email="victoralejandromartinezmedina@gmail.com",
-        to=[email]
-    )
-    email_message.content_subtype = "html"
-    email_message.send()
-    return Response({"detail": "EMAIL SENT"},content_type="application/json", status=status.HTTP_200_OK)
+def get_respuestas_usuarios():
+    usuarios = Usuario.objects.all()
+    preguntas = Pregunta.objects.all()
+    rows = []
+    row = "username | "
+    
+    for preguntaT in preguntas:
+        row = row + preguntaT.descripcion + " | "
+    rows.append(row)
+
+    row = ""
+    for usuarioT in usuarios:
+        row = row + usuarioT.username + " | "
+        for preguntaT in preguntas:
+            respuesta = Respuesta.objects.get(usuario = usuarioT , pregunta = preguntaT)
+            if respuesta == None:
+               row = row + " NA " + " | "
+            else:
+               row = row + respuesta.descripcion + " | "
+        rows.append(row)
+        row = ""
+    return rows
+
+@api_view(["POST"])
+def usuario_enviar_email(request):
+    serializer = UsuarioSerializer(data = request.data)
+    respuestas_usuarios = get_respuestas_usuarios()
+    respuestas_body = ""
+    for respuesta in respuestas_usuarios:
+        respuestas_body = respuestas_body + respuesta + " <br/> "
+    print(respuestas_body)
+    if serializer.is_valid():
+        correo = serializer.data.get('email')
+        print('correo: ' , correo)
+        username = "example@gmail.com"
+        password = "123443"
+        email_from = "example@gmail.com"
+        email_to = [correo]
+        subject = "Respuestas Usuarios"
+        email_text = """\
+                From: %s
+                To: %s
+                Subject: %s
+                %s
+                """ % (email_from, ", ".join(email_to), subject, respuestas_body)
+    
+        server = smtplib.SMTP_SSL('smtp.gmail.com', 465)
+        server.ehlo()
+        server.login(username, password)
+        server.sendmail(email_from, email_to, email_text)
+        server.close()
+        return Response({"detail": "EMAIL SENT"},content_type="application/json", status=status.HTTP_200_OK)
+    else:
+        return Response({"detail": "EMAIL NOT SENT"},content_type="application/json", status=status.HTTP_400_BAD_REQUEST)
 
 #operaciones para preguntas
 
@@ -102,25 +136,5 @@ def respuesta_actualizar(request , respuesta_id):
        
 @api_view(["GET"])
 def respuesta_todos_usuarios(request):
-    usuarios = Usuario.objects.all()
-    preguntas = Pregunta.objects.all()
-    rows = []
-    row = "username | "
-    
-    for preguntaT in preguntas:
-        row = row + preguntaT.descripcion + " | "
-    rows.append(row)
-
-    row = ""
-    for usuarioT in usuarios:
-        row = row + usuarioT.username + " | "
-        for preguntaT in preguntas:
-            respuesta = Respuesta.objects.get(usuario = usuarioT , pregunta = preguntaT)
-            if respuesta == None:
-               row = row + " NA " + " | "
-            else:
-               row = row + respuesta.descripcion + " | "
-        rows.append(row)
-        row = ""
-
-    return JsonResponse(rows, safe=False)
+    respuestas_usuarios = get_respuestas_usuarios()
+    return JsonResponse(respuestas_usuarios, safe=False)
